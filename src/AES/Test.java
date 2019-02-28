@@ -20,6 +20,9 @@ public class Test {
 		String oldStr = AES.decrypt(resStr, KEY);
 		System.out.println("解密后数据：" + oldStr);
 
+		String oldStr = AES.decrypt(resStr, KEY);
+		System.out.println("解密后数据：" + oldStr);
+
 	}
 
 }
