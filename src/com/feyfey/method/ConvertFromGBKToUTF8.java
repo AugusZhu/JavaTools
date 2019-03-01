@@ -11,7 +11,7 @@ public class ConvertFromGBKToUTF8 {
 	public static void main(String[] args) {
 		try {
 			ConvertFromGBKToUTF8 convert = new ConvertFromGBKToUTF8();
-			byte[] fullByte = convert.gbk2utf8("¿∂≈÷÷Ωm÷ÏœÃ∑…efff");
+			byte[] fullByte = convert.gbk2utf8("≤®“Ù747∑…ª˙");
 			String fullStr = new String(fullByte, "UTF-8");
 			// String fullStr = new String(fullByte);
 			System.out.println("string from GBK to UTF-8 byte:  " + fullStr);
