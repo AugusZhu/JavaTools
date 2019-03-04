@@ -14,7 +14,7 @@ import java.net.URL;
 public class TestHttpPost {
 
 	public static void main(String[] args) {
-		new ReadByGet().start();
+		new ReadByPost().start();
 	}
 
 }
