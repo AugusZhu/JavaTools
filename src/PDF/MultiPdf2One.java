@@ -1,4 +1,4 @@
-package pdf;
+package PDF;
 
 import java.io.File;
 import java.io.IOException;
