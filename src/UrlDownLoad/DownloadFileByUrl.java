@@ -43,7 +43,7 @@ public class DownloadFileByUrl {
 			// 文件大小
 			int fileLength = httpURLConnection.getContentLength();
 			// 文件
-			// System.out.println("file length---->" + fileLength);
+			System.out.println("file length---->" + fileLength);
 
 			URLConnection con = url.openConnection();
 			BufferedInputStream bin = new BufferedInputStream(httpURLConnection.getInputStream());
@@ -131,14 +131,12 @@ public class DownloadFileByUrl {
 	public static void main(String[] args) {
 
 		// 下载文件测试
-		  downloadFile(
-		  "https://einvoicelink.51fapiao.cn:8181/FPFX/actions/f1710172890211f5e19a6bb7c13bea1b8a112e",
-		  "F:\\test1", "test1.pdf");
-		 
-		// 文件转移测试
-		 transferFolderFile("F:\\test1", "F:\\test2", 0);
+		downloadFile("https://einvoicelink.51fapiao.cn:8181/FPFX/actions/f1710172890211f5e19a6bb7c13bea1b8a112e",
+				"F:\\test1", "test1.pdf");
 
-	
+		// 文件转移测试
+		transferFolderFile("F:\\test1", "F:\\test2", 0);
+
 	}
 
 }
