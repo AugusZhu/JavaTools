@@ -3,11 +3,13 @@ package util;
 import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 /**
@@ -15,39 +17,42 @@ import java.util.zip.ZipOutputStream;
  * 
  * <p>
  * 整合了日常开发中常用的工具方法，包括AES加密解密、MD5加密、UUID生成、
- * 文件操作、ZIP压缩、HTTP请求、编码转换等功能。
+ * 文件操作、ZIP压缩解压、HTTP请求、编码转换等功能。
  * </p>
  * 
  * <p>
  * <b>使用示例：</b>
  * </p>
  * <pre>
- * import util.Util;
+ * import util.JavaTools;
  * 
  * // AES加密
- * String encrypted = Util.aesEncrypt("Hello", "1234567890123456");
+ * String encrypted = JavaTools.aesEncrypt("Hello", "1234567890123456");
  * 
  * // MD5加密
- * String md5 = Util.md5("test");
+ * String md5 = JavaTools.md5("test");
  * 
  * // UUID生成
- * String uuid = Util.uuid();
+ * String uuid = JavaTools.uuid();
  * 
  * // 文件操作
- * Util.copyFile("a.txt", "b.txt");
+ * JavaTools.copyFile("a.txt", "b.txt");
  * 
  * // ZIP压缩
- * Util.zip("folder/", "out.zip");
+ * JavaTools.zip("folder/", "out.zip");
+ * 
+ * // ZIP解压
+ * JavaTools.unzip("out.zip", "output/");
  * 
  * // HTTP请求
- * String result = Util.httpGet("https://example.com");
+ * String result = JavaTools.httpGet("https://example.com");
  * </pre>
  * 
  * @author Xianfei Zhu
- * @version 2.0
+ * @version 3.0
  * @since 1.0
  */
-public final class Util {
+public final class JavaTools {
 
     /** 文件操作缓冲区大小（10KB） */
     private static final int BUFFER = 10240;
@@ -58,17 +63,21 @@ public final class Util {
     /** 十六进制字符表 */
     private static final char[] HEX = "0123456789abcdef".toCharArray();
 
+    /** 默认User-Agent */
+    private static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
     /** 私有构造器，禁止实例化 */
-    private Util() {
+    private JavaTools() {
     }
 
     // ==================== AES加密解密 ====================
 
     /**
-     * AES加密（ECB模式，PKCS5Padding填充）
+     * AES加密（CBC模式，PKCS5Padding填充）
      *
      * <p>
-     * 将明文加密为十六进制字符串格式的密文
+     * 将明文加密为十六进制字符串格式的密文。
+     * 使用CBC模式+随机IV，密文格式：16位IV(32字符) + 实际密文
      * </p>
      *
      * @param data 明文内容
@@ -77,8 +86,8 @@ public final class Util {
      * @see #aesDecrypt(String, String)
      * @example
      * <pre>
-     * String encrypted = Util.aesEncrypt("Hello World", "1234567890123456");
-     * // 返回类似：a5f8d9e2c3b1...
+     * String encrypted = JavaTools.aesEncrypt("Hello World", "1234567890123456");
+     * // 返回类似：a5f8d9e2c3b1...（前32位为IV）
      * </pre>
      */
     public static String aesEncrypt(String data, String key) {
@@ -86,19 +95,19 @@ public final class Util {
     }
 
     /**
-     * AES解密（ECB模式，PKCS5Padding填充）
+     * AES解密（CBC模式，PKCS5Padding填充）
      *
      * <p>
      * 将十六进制字符串格式的密文解密为明文
      * </p>
      *
-     * @param data 十六进制格式的密文
+     * @param data 十六进制格式的密文（包含IV）
      * @param key  密钥，必须为16位字符
      * @return 解密后的明文，参数无效或解密失败返回null
      * @see #aesEncrypt(String, String)
      * @example
      * <pre>
-     * String decrypted = Util.aesDecrypt("a5f8d9e2c3b1...", "1234567890123456");
+     * String decrypted = JavaTools.aesDecrypt("a5f8d9e2c3b1...", "1234567890123456");
      * // 返回：Hello World
      * </pre>
      */
@@ -107,7 +116,7 @@ public final class Util {
     }
 
     /**
-     * AES加解密核心处理方法
+     * AES加解密核心处理方法（CBC模式）
      *
      * @param data 待处理数据
      * @param key  密钥
@@ -116,35 +125,47 @@ public final class Util {
      */
     private static String aesProcess(String data, String key, int mode) {
         try {
-            // 参数校验
             if (data == null || key == null || key.length() != 16) {
                 return null;
             }
 
-            // 根据模式转换数据
-            byte[] content = mode == javax.crypto.Cipher.ENCRYPT_MODE
-                    ? data.getBytes(StandardCharsets.UTF_8)
-                    : hexToBytes(data);
+            byte[] content;
+            byte[] ivBytes;
+            javax.crypto.spec.IvParameterSpec iv;
 
-            if (content == null) {
-                return null;
+            if (mode == javax.crypto.Cipher.ENCRYPT_MODE) {
+                content = data.getBytes(StandardCharsets.UTF_8);
+                ivBytes = new byte[16];
+                new SecureRandom().nextBytes(ivBytes);
+                iv = new javax.crypto.spec.IvParameterSpec(ivBytes);
+            } else {
+                byte[] all = hexToBytes(data);
+                if (all == null || all.length <= 16) {
+                    return null;
+                }
+                ivBytes = new byte[16];
+                System.arraycopy(all, 0, ivBytes, 0, 16);
+                iv = new javax.crypto.spec.IvParameterSpec(ivBytes);
+                content = new byte[all.length - 16];
+                System.arraycopy(all, 16, content, 0, content.length);
             }
 
-            // 构建AES密钥规范
             javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(
                     key.getBytes(StandardCharsets.UTF_8), "AES");
 
-            // 初始化Cipher
-            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/ECB/PKCS5Padding");
-            cipher.init(mode, keySpec);
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(mode, keySpec, iv);
 
-            // 执行加解密
             byte[] result = cipher.doFinal(content);
 
-            // 返回结果
-            return mode == javax.crypto.Cipher.ENCRYPT_MODE
-                    ? bytesToHex(result)
-                    : new String(result, StandardCharsets.UTF_8);
+            if (mode == javax.crypto.Cipher.ENCRYPT_MODE) {
+                byte[] all = new byte[ivBytes.length + result.length];
+                System.arraycopy(ivBytes, 0, all, 0, ivBytes.length);
+                System.arraycopy(result, 0, all, ivBytes.length, result.length);
+                return bytesToHex(all);
+            } else {
+                return new String(result, StandardCharsets.UTF_8);
+            }
         } catch (Exception e) {
             return null;
         }
@@ -169,7 +190,7 @@ public final class Util {
      * @return 32位小写十六进制MD5值，输入为null时返回null
      * @example
      * <pre>
-     * String hash = Util.md5("Hello World");
+     * String hash = JavaTools.md5("Hello World");
      * // 返回：b10a8db164e0754105b7a99be72e3fe5
      * </pre>
      */
@@ -178,7 +199,6 @@ public final class Util {
             return null;
         }
         try {
-            // 获取MD5算法实例并计算哈希值
             byte[] bytes = MessageDigest.getInstance("MD5").digest(data.getBytes(StandardCharsets.UTF_8));
             return bytesToHex(bytes);
         } catch (Exception e) {
@@ -200,7 +220,7 @@ public final class Util {
      * @see #uuidOf(String)
      * @example
      * <pre>
-     * String uuid = Util.uuid();
+     * String uuid = JavaTools.uuid();
      * // 返回：550e8400e29b41d4a716446655440000
      * </pre>
      */
@@ -219,7 +239,7 @@ public final class Util {
      * @see #uuid()
      * @example
      * <pre>
-     * String uuid = Util.uuidWithDash();
+     * String uuid = JavaTools.uuidWithDash();
      * // 返回：550e8400-e29b-41d4-a716-446655440000
      * </pre>
      */
@@ -240,12 +260,12 @@ public final class Util {
      * @see #uuid()
      * @example
      * <pre>
-     * String uuid = Util.uuidOf("test");
+     * String uuid = JavaTools.uuidOf("test");
      * // 返回：c81d4e2e8b2d11ec9f3e0800200c9a66
      * </pre>
      */
     public static String uuidOf(String name) {
-        return UUID.nameUUIDFromBytes(name.getBytes()).toString().replace("-", "");
+        return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).toString().replace("-", "");
     }
 
     // ==================== 文件操作 ====================
@@ -263,24 +283,18 @@ public final class Util {
      * @see #copyDir(String, String)
      * @example
      * <pre>
-     * Util.copyFile("C:\\source.txt", "D:\\backup\\target.txt");
+     * JavaTools.copyFile("C:\\source.txt", "D:\\backup\\target.txt");
      * </pre>
      */
     public static void copyFile(String source, String target) {
-        File src = new File(source);
-        if (!src.exists()) {
+        Path srcPath = Paths.get(source);
+        if (!Files.exists(srcPath)) {
             throw new RuntimeException("源文件不存在: " + source);
         }
-        // 确保目标目录存在
-        new File(target).getParentFile().mkdirs();
-
-        try (FileInputStream in = new FileInputStream(src);
-             FileOutputStream out = new FileOutputStream(target)) {
-            byte[] buf = new byte[BUFFER];
-            int len;
-            while ((len = in.read(buf)) != -1) {
-                out.write(buf, 0, len);
-            }
+        try {
+            Path destPath = Paths.get(target);
+            Files.createDirectories(destPath.getParent());
+            Files.copy(srcPath, destPath, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             throw new RuntimeException("文件复制失败: " + e.getMessage(), e);
         }
@@ -299,31 +313,33 @@ public final class Util {
      * @see #copyFile(String, String)
      * @example
      * <pre>
-     * Util.copyDir("C:\\sourceDir", "D:\\backup\\targetDir");
+     * JavaTools.copyDir("C:\\sourceDir", "D:\\backup\\targetDir");
      * </pre>
      */
     public static void copyDir(String source, String target) {
-        File src = new File(source);
-        File dest = new File(target);
-
-        if (!src.exists() || !src.isDirectory()) {
+        Path srcPath = Paths.get(source);
+        if (!Files.exists(srcPath) || !Files.isDirectory(srcPath)) {
             throw new RuntimeException("源目录不存在: " + source);
         }
-        // 创建目标目录
-        dest.mkdirs();
 
-        File[] files = src.listFiles();
-        if (files == null) return;
+        try {
+            Files.walkFileTree(srcPath, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    Path targetDir = Paths.get(target, srcPath.relativize(dir).toString());
+                    Files.createDirectories(targetDir);
+                    return FileVisitResult.CONTINUE;
+                }
 
-        for (File f : files) {
-            String path = target + File.separator + f.getName();
-            if (f.isDirectory()) {
-                // 递归复制子目录
-                copyDir(f.getAbsolutePath(), path);
-            } else {
-                // 复制文件
-                copyFile(f.getAbsolutePath(), path);
-            }
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Path targetFile = Paths.get(target, srcPath.relativize(file).toString());
+                    Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("目录复制失败: " + e.getMessage(), e);
         }
     }
 
@@ -333,6 +349,7 @@ public final class Util {
      * <p>
      * 将文件移动到目标位置（相当于剪切操作）。
      * 如果目标目录不存在会自动创建。
+     * 优先使用原子移动操作，失败时使用复制+删除策略。
      * </p>
      *
      * @param source 源文件路径
@@ -340,21 +357,34 @@ public final class Util {
      * @throws RuntimeException 当源文件不存在或移动失败时抛出
      * @example
      * <pre>
-     * Util.moveFile("C:\\old.txt", "D:\\new.txt");
+     * JavaTools.moveFile("C:\\old.txt", "D:\\new.txt");
      * </pre>
      */
     public static void moveFile(String source, String target) {
-        File src = new File(source);
-        if (!src.exists()) {
+        Path srcPath = Paths.get(source);
+        Path destPath = Paths.get(target);
+
+        if (!Files.exists(srcPath)) {
             throw new RuntimeException("源文件不存在: " + source);
         }
-        new File(target).getParentFile().mkdirs();
 
-        // 尝试使用renameTo移动（跨分区可能失败）
-        if (!src.renameTo(new File(target))) {
-            // 如果失败，先复制再删除
-            copyFile(source, target);
-            src.delete();
+        try {
+            Files.createDirectories(destPath.getParent());
+            Files.move(srcPath, destPath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            if (e instanceof AtomicMoveNotSupportedException || 
+                e instanceof FileSystemException) {
+                try {
+                    Files.copy(srcPath, destPath, StandardCopyOption.REPLACE_EXISTING);
+                    if (!Files.deleteIfExists(srcPath)) {
+                        throw new RuntimeException("移动成功但源文件删除失败，保留目标副本: " + source);
+                    }
+                } catch (IOException ex) {
+                    throw new RuntimeException("文件移动失败: " + ex.getMessage(), ex);
+                }
+            } else {
+                throw new RuntimeException("文件移动失败: " + e.getMessage(), e);
+            }
         }
     }
 
@@ -368,33 +398,42 @@ public final class Util {
      * @param path 待删除的文件或目录路径
      * @example
      * <pre>
-     * Util.delete("C:\\temp");  // 删除文件或目录
+     * JavaTools.delete("C:\\temp");  // 删除文件或目录
      * </pre>
      */
     public static void delete(String path) {
-        File f = new File(path);
-        if (!f.exists()) {
-            return;
-        }
-
-        // 如果是目录，递归删除内容
-        if (f.isDirectory()) {
-            File[] files = f.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    delete(file.getAbsolutePath());
-                }
+        try {
+            Path p = Paths.get(path);
+            if (!Files.exists(p)) {
+                return;
             }
+            if (Files.isDirectory(p)) {
+                Files.walkFileTree(p, new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                        Files.delete(file);
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                        Files.delete(dir);
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            } else {
+                Files.delete(p);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("删除失败: " + e.getMessage(), e);
         }
-        // 删除文件或空目录
-        f.delete();
     }
 
     /**
-     * 读取文件内容
+     * 读取文件内容（流式读取，适用于大文件）
      *
      * <p>
-     * 以UTF-8编码读取整个文件内容为字符串
+     * 以UTF-8编码读取文件内容，使用流式读取避免大文件OOM
      * </p>
      *
      * @param path 文件路径
@@ -403,12 +442,39 @@ public final class Util {
      * @see #writeFile(String, String)
      * @example
      * <pre>
-     * String content = Util.readFile("C:\\test.txt");
+     * String content = JavaTools.readFile("C:\\test.txt");
      * </pre>
      */
     public static String readFile(String path) {
-        try {
-            return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
+        return readFile(path, "UTF-8");
+    }
+
+    /**
+     * 读取文件内容（指定编码）
+     *
+     * <p>
+     * 以指定编码读取文件内容，使用流式读取避免大文件OOM
+     * </p>
+     *
+     * @param path    文件路径
+     * @param charset 字符编码
+     * @return 文件内容字符串
+     * @throws RuntimeException 当文件读取失败时抛出
+     * @see #writeFile(String, String)
+     */
+    public static String readFile(String path, String charset) {
+        if (!Charset.isSupported(charset)) {
+            throw new RuntimeException("不支持的字符编码: " + charset);
+        }
+        StringBuilder sb = new StringBuilder(BUFFER * 4);
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(
+                new FileInputStream(path), charset), BUFFER * 4)) {
+            char[] buf = new char[BUFFER];
+            int len;
+            while ((len = br.read(buf)) != -1) {
+                sb.append(buf, 0, len);
+            }
+            return sb.toString();
         } catch (IOException e) {
             throw new RuntimeException("文件读取失败: " + e.getMessage(), e);
         }
@@ -427,14 +493,33 @@ public final class Util {
      * @see #readFile(String)
      * @example
      * <pre>
-     * Util.writeFile("C:\\test.txt", "Hello World");
+     * JavaTools.writeFile("C:\\test.txt", "Hello World");
      * </pre>
      */
     public static void writeFile(String path, String content) {
-        File f = new File(path);
-        f.getParentFile().mkdirs();
+        writeFile(path, content, "UTF-8", false);
+    }
+
+    /**
+     * 写入文件内容（可追加）
+     *
+     * <p>
+     * 以指定编码将内容写入文件，支持追加模式
+     * </p>
+     *
+     * @param path    文件路径
+     * @param content 待写入内容
+     * @param charset 字符编码
+     * @param append  是否追加模式
+     * @throws RuntimeException 当文件写入失败时抛出
+     * @see #readFile(String)
+     */
+    public static void writeFile(String path, String content, String charset, boolean append) {
         try {
-            Files.write(Paths.get(path), content.getBytes(StandardCharsets.UTF_8));
+            Path p = Paths.get(path);
+            Files.createDirectories(p.getParent());
+            Files.write(p, content.getBytes(charset), 
+                append ? StandardOpenOption.APPEND : StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             throw new RuntimeException("文件写入失败: " + e.getMessage(), e);
         }
@@ -453,9 +538,10 @@ public final class Util {
      * @param target 目标ZIP文件路径
      * @throws RuntimeException 当源文件不存在或压缩失败时抛出
      * @see #zipFlat(String, String)
+     * @see #unzip(String, String)
      * @example
      * <pre>
-     * Util.zip("C:\\folder", "D:\\output.zip");
+     * JavaTools.zip("C:\\folder", "D:\\output.zip");
      * </pre>
      */
     public static void zip(String source, String target) {
@@ -464,7 +550,8 @@ public final class Util {
             throw new RuntimeException("源文件不存在: " + source);
         }
 
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(new File(target)))) {
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(new File(target)), 
+                StandardCharsets.UTF_8)) {
             zipToZip(src, zos, "");
         } catch (Exception e) {
             throw new RuntimeException("压缩失败: " + e.getMessage(), e);
@@ -483,9 +570,10 @@ public final class Util {
      * @param targetFile 目标ZIP文件路径
      * @return 压缩是否成功，源目录无效或为空时返回false
      * @see #zip(String, String)
+     * @see #unzip(String, String)
      * @example
      * <pre>
-     * boolean success = Util.zipFlat("C:\\folder", "D:\\output.zip");
+     * boolean success = JavaTools.zipFlat("C:\\folder", "D:\\output.zip");
      * </pre>
      */
     public static boolean zipFlat(String sourceDir, String targetFile) {
@@ -495,7 +583,8 @@ public final class Util {
         File[] files = src.listFiles();
         if (files == null || files.length == 0) return false;
 
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(new File(targetFile)))) {
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(new File(targetFile)), 
+                StandardCharsets.UTF_8)) {
             for (File f : files) {
                 if (f.isFile()) {
                     zipFile(f, zos, "");
@@ -508,14 +597,76 @@ public final class Util {
     }
 
     /**
+     * 解压ZIP文件
+     *
+     * <p>
+     * 将ZIP文件解压到指定目录，包含路径遍历安全校验
+     * </p>
+     *
+     * @param zipPath ZIP文件路径
+     * @param targetDir 目标目录路径
+     * @throws RuntimeException 当ZIP文件不存在或解压失败时抛出
+     * @see #zip(String, String)
+     * @see #zipFlat(String, String)
+     * @example
+     * <pre>
+     * JavaTools.unzip("D:\\output.zip", "C:\\output\\");
+     * </pre>
+     */
+    public static void unzip(String zipPath, String targetDir) {
+        File zipFile = new File(zipPath);
+        if (!zipFile.exists()) {
+            throw new RuntimeException("ZIP文件不存在: " + zipPath);
+        }
+
+        File target = targetDir.endsWith(File.separator) 
+            ? new File(targetDir) 
+            : new File(targetDir + File.separator);
+        target = target.getAbsoluteFile();
+        target.mkdirs();
+
+        try (ZipFile zf = new ZipFile(zipFile)) {
+            String destDirPath = target.getCanonicalPath();
+            java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                File outFile = new File(target, entry.getName()).getAbsoluteFile();
+
+                String destFilePath = outFile.getCanonicalPath();
+                if (!destFilePath.startsWith(destDirPath + File.separator)) {
+                    throw new RuntimeException("非法压缩文件条目，存在路径遍历风险: " + entry.getName());
+                }
+
+                if (entry.isDirectory()) {
+                    outFile.mkdirs();
+                } else {
+                    outFile.getParentFile().mkdirs();
+                    try (InputStream is = zf.getInputStream(entry);
+                         FileOutputStream fos = new FileOutputStream(outFile)) {
+                        is.transferTo(fos);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("解压失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * 递归添加文件到ZIP
+     *
+     * @param file 源文件或目录
+     * @param zos  ZIP输出流
+     * @param base 基础路径
+     * @throws IOException 当写入失败时抛出
      */
     private static void zipToZip(File file, ZipOutputStream zos, String base) throws IOException {
         if (file.isDirectory()) {
             File[] files = file.listFiles();
             if (files == null) return;
+            String newBase = base.isEmpty() ? file.getName() + "/" : base + file.getName() + "/";
             for (File f : files) {
-                zipToZip(f, zos, base + file.getName() + "/");
+                zipToZip(f, zos, newBase);
             }
         } else {
             zipFile(file, zos, base);
@@ -524,6 +675,11 @@ public final class Util {
 
     /**
      * 添加单个文件到ZIP
+     *
+     * @param file 源文件
+     * @param zos  ZIP输出流
+     * @param base 基础路径
+     * @throws IOException 当写入失败时抛出
      */
     private static void zipFile(File file, ZipOutputStream zos, String base) throws IOException {
         try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
@@ -555,7 +711,7 @@ public final class Util {
      * @see #httpPost(String, String)
      * @example
      * <pre>
-     * String result = Util.httpGet("https://api.example.com/data");
+     * String result = JavaTools.httpGet("https://api.example.com/data");
      * </pre>
      */
     public static String httpGet(String url) {
@@ -575,18 +731,23 @@ public final class Util {
      * @throws RuntimeException 当请求失败时抛出
      * @example
      * <pre>
-     * String result = Util.httpGet("https://api.example.com/data", "UTF-8");
+     * String result = JavaTools.httpGet("https://api.example.com/data", "UTF-8");
      * </pre>
      */
     public static String httpGet(String url, String charset) {
         charset = charset == null ? "UTF-8" : charset;
+        if (!Charset.isSupported(charset)) {
+            throw new RuntimeException("不支持的字符编码: " + charset);
+        }
         java.net.HttpURLConnection conn = null;
         try {
             conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(30000);
             conn.setReadTimeout(30000);
-            conn.setRequestProperty("Charset", charset);
+            conn.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
+            conn.setRequestProperty("Accept-Charset", charset);
+            conn.setInstanceFollowRedirects(true);
             return httpRead(conn, charset);
         } catch (Exception e) {
             throw new RuntimeException("GET请求失败: " + e.getMessage(), e);
@@ -610,7 +771,7 @@ public final class Util {
      * @see #httpGet(String)
      * @example
      * <pre>
-     * String result = Util.httpPost("https://api.example.com/login", "username=admin&password=123");
+     * String result = JavaTools.httpPost("https://api.example.com/login", "username=admin&password=123");
      * </pre>
      */
     public static String httpPost(String url, String params) {
@@ -631,21 +792,25 @@ public final class Util {
      * @throws RuntimeException 当请求失败时抛出
      * @example
      * <pre>
-     * String result = Util.httpPost("https://api.example.com/data", "json={}", "UTF-8");
+     * String result = JavaTools.httpPost("https://api.example.com/data", "json={}", "UTF-8");
      * </pre>
      */
     public static String httpPost(String url, String params, String charset) {
         charset = charset == null ? "UTF-8" : charset;
+        if (!Charset.isSupported(charset)) {
+            throw new RuntimeException("不支持的字符编码: " + charset);
+        }
         java.net.HttpURLConnection conn = null;
         try {
             conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             conn.setRequestMethod("POST");
             conn.setConnectTimeout(30000);
             conn.setReadTimeout(30000);
+            conn.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
             conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=" + charset);
 
-            // 写入请求参数
             if (params != null && !params.isEmpty()) {
                 try (BufferedWriter bw = new BufferedWriter(
                         new OutputStreamWriter(conn.getOutputStream(), charset))) {
@@ -662,18 +827,25 @@ public final class Util {
     }
 
     /**
-     * 读取HTTP响应内容
+     * 读取HTTP响应内容（字节流方式，保留原始内容）
+     *
+     * @param conn    HTTP连接
+     * @param charset 字符编码
+     * @return 响应内容
+     * @throws Exception 当读取失败时抛出
      */
     private static String httpRead(java.net.HttpURLConnection conn, String charset) throws Exception {
         int code = conn.getResponseCode();
         try (InputStream is = code == 200 ? conn.getInputStream() : conn.getErrorStream();
-             BufferedReader br = new BufferedReader(new InputStreamReader(is, charset))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line).append("\n");
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[BUFFER];
+            int len;
+            while ((len = is.read(buffer)) != -1) {
+                bos.write(buffer, 0, len);
             }
-            return sb.toString();
+            return bos.toByteArray().length > 0 
+                ? new String(bos.toByteArray(), charset) 
+                : "";
         }
     }
 
@@ -687,7 +859,7 @@ public final class Util {
      * @see #utf8ToGbk(String)
      * @example
      * <pre>
-     * String utf8 = Util.gbkToUtf8("测试");
+     * String utf8 = JavaTools.gbkToUtf8("测试");
      * </pre>
      */
     public static String gbkToUtf8(String str) {
@@ -702,7 +874,7 @@ public final class Util {
      * @see #gbkToUtf8(String)
      * @example
      * <pre>
-     * String gbk = Util.utf8ToGbk("测试");
+     * String gbk = JavaTools.utf8ToGbk("测试");
      * </pre>
      */
     public static String utf8ToGbk(String str) {
@@ -722,7 +894,7 @@ public final class Util {
      * @return 转换后的字符串，输入为null时返回null
      * @example
      * <pre>
-     * String result = Util.charsetConvert("测试", 
+     * String result = JavaTools.charsetConvert("测试", 
      *     Charset.forName("GBK"), 
      *     Charset.forName("UTF-8"));
      * </pre>
@@ -746,7 +918,7 @@ public final class Util {
      * @see #hexToBytes(String)
      * @example
      * <pre>
-     * String hex = Util.bytesToHex(new byte[]{0x48, 0x65, 0x6c, 0x6c, 0x6f});
+     * String hex = JavaTools.bytesToHex(new byte[]{0x48, 0x65, 0x6c, 0x6c, 0x6f});
      * // 返回：48656c6c6f
      * </pre>
      */
@@ -773,7 +945,7 @@ public final class Util {
      * @see #bytesToHex(byte[])
      * @example
      * <pre>
-     * byte[] bytes = Util.hexToBytes("48656c6c6f");
+     * byte[] bytes = JavaTools.hexToBytes("48656c6c6f");
      * // 返回：[72, 101, 108, 108, 111]
      * </pre>
      */

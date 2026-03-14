@@ -11,49 +11,49 @@
 JavaTools/
 ├── src/
 │   └── util/
-│       └── Util.java    # 统一工具类（约600行）
-├── lib/                 # 依赖库（备用）
-└── README.md
+│       └── JavaTools.java  # 统一工具类（约700行）
+├── README.md
 ```
 
 ## 快速开始
 
 ```java
-import util.Util;
+import util.JavaTools;
 
 // AES加密
-String encrypted = Util.aesEncrypt("Hello", "1234567890123456");
-String decrypted = Util.aesDecrypt(encrypted, "1234567890123456");
+String encrypted = JavaTools.aesEncrypt("Hello", "1234567890123456");
+String decrypted = JavaTools.aesDecrypt(encrypted, "1234567890123456");
 
 // MD5加密
-String hash = Util.md5("Hello World");
+String hash = JavaTools.md5("Hello World");
 
 // UUID
-String uuid = Util.uuid();
+String uuid = JavaTools.uuid();
 
 // 文件操作
-Util.copyFile("a.txt", "b.txt");
-Util.copyDir("dir1", "dir2");
-Util.moveFile("old.txt", "new.txt");
-Util.delete("path");
-String content = Util.readFile("file.txt");
-Util.writeFile("file.txt", "content");
+JavaTools.copyFile("a.txt", "b.txt");
+JavaTools.copyDir("dir1", "dir2");
+JavaTools.moveFile("old.txt", "new.txt");
+JavaTools.delete("path");
+String content = JavaTools.readFile("file.txt");
+JavaTools.writeFile("file.txt", "content");
 
 // ZIP压缩
-Util.zip("folder/", "out.zip");
-Util.zipFlat("folder/", "flat.zip");
+JavaTools.zip("folder/", "out.zip");
+JavaTools.zipFlat("folder/", "flat.zip");
+JavaTools.unzip("out.zip", "output/");
 
 // HTTP请求
-String result = Util.httpGet("https://example.com");
-String result = Util.httpPost("https://example.com", "param=value");
+String result = JavaTools.httpGet("https://example.com");
+String result = JavaTools.httpPost("https://example.com", "param=value");
 
 // 编码转换
-String utf8 = Util.gbkToUtf8("测试");
-String gbk = Util.utf8ToGbk("测试");
+String utf8 = JavaTools.gbkToUtf8("测试");
+String gbk = JavaTools.utf8ToGbk("测试");
 
 // 字节转换
-String hex = Util.bytesToHex(bytes);
-byte[] bytes = Util.hexToBytes("48656c6c6f");
+String hex = JavaTools.bytesToHex(bytes);
+byte[] bytes = JavaTools.hexToBytes("48656c6c6f");
 ```
 
 ## API文档
@@ -67,9 +67,9 @@ byte[] bytes = Util.hexToBytes("48656c6c6f");
 
 ```java
 // 加密
-String encrypted = Util.aesEncrypt("Hello World", "1234567890123456");
+String encrypted = JavaTools.aesEncrypt("Hello World", "1234567890123456");
 // 解密
-String decrypted = Util.aesDecrypt(encrypted, "1234567890123456");
+String decrypted = JavaTools.aesDecrypt(encrypted, "1234567890123456");
 ```
 
 ---
@@ -81,7 +81,7 @@ String decrypted = Util.aesDecrypt(encrypted, "1234567890123456");
 | `md5(data)` | MD5哈希 | data: 待加密字符串 | 32位小写MD5值 |
 
 ```java
-String hash = Util.md5("Hello World");
+String hash = JavaTools.md5("Hello World");
 // 输出：b10a8db164e0754105b7a99be72e3fe5
 ```
 
@@ -98,9 +98,9 @@ String hash = Util.md5("Hello World");
 | `uuidOf(name)` | 名称UUID | name: 名称字符串 | 32位UUID |
 
 ```java
-Util.uuid();           // 550e8400e29b41d4a716446655440000
-Util.uuidWithDash();   // 550e8400-e29b-41d4-a716-446655440000
-Util.uuidOf("test");   // c81d4e2e8b2d11ec9f3e0800200c9a66
+JavaTools.uuid();           // 550e8400e29b41d4a716446655440000
+JavaTools.uuidWithDash();   // 550e8400-e29b-41d4-a716-446655440000
+JavaTools.uuidOf("test");   // c81d4e2e8b2d11ec9f3e0800200c9a66
 ```
 
 ---
@@ -118,20 +118,20 @@ Util.uuidOf("test");   // c81d4e2e8b2d11ec9f3e0800200c9a66
 
 ```java
 // 文件复制
-Util.copyFile("C:\\source.txt", "D:\\backup\\target.txt");
+JavaTools.copyFile("C:\\source.txt", "D:\\backup\\target.txt");
 
 // 目录复制
-Util.copyDir("C:\\sourceDir", "D:\\backup\\targetDir");
+JavaTools.copyDir("C:\\sourceDir", "D:\\backup\\targetDir");
 
 // 文件移动
-Util.moveFile("C:\\old.txt", "D:\\new.txt");
+JavaTools.moveFile("C:\\old.txt", "D:\\new.txt");
 
 // 删除
-Util.delete("C:\\temp");
+JavaTools.delete("C:\\temp");
 
 // 读写
-String content = Util.readFile("C:\\test.txt");
-Util.writeFile("C:\\test.txt", "Hello World");
+String content = JavaTools.readFile("C:\\test.txt");
+JavaTools.writeFile("C:\\test.txt", "Hello World");
 ```
 
 ---
@@ -142,13 +142,17 @@ Util.writeFile("C:\\test.txt", "Hello World");
 |------|------|------|--------|
 | `zip(source, target)` | 压缩文件或目录 | source: 源路径, target: 目标ZIP路径 | void |
 | `zipFlat(sourceDir, targetFile)` | 扁平化压缩 | sourceDir: 源目录, targetFile: 目标ZIP | boolean |
+| `unzip(zipPath, targetDir)` | 解压ZIP文件 | zipPath: ZIP路径, targetDir: 目标目录 | void |
 
 ```java
 // 保持目录结构压缩
-Util.zip("C:\\folder", "D:\\output.zip");
+JavaTools.zip("C:\\folder", "D:\\output.zip");
 
 // 扁平化压缩（仅压缩目录下文件）
-Util.zipFlat("C:\\folder", "D:\\flat.zip");
+JavaTools.zipFlat("C:\\folder", "D:\\flat.zip");
+
+// 解压ZIP文件
+JavaTools.unzip("D:\\output.zip", "C:\\output\\");
 ```
 
 ---
@@ -164,12 +168,12 @@ Util.zipFlat("C:\\folder", "D:\\flat.zip");
 
 ```java
 // GET请求
-String result = Util.httpGet("https://api.example.com/data");
-String result = Util.httpGet("https://api.example.com/data", "UTF-8");
+String result = JavaTools.httpGet("https://api.example.com/data");
+String result = JavaTools.httpGet("https://api.example.com/data", "UTF-8");
 
 // POST请求
-String result = Util.httpPost("https://api.example.com/login", "username=admin&password=123");
-String result = Util.httpPost("https://api.example.com/data", "json={}", "UTF-8");
+String result = JavaTools.httpPost("https://api.example.com/login", "username=admin&password=123");
+String result = JavaTools.httpPost("https://api.example.com/data", "json={}", "UTF-8");
 ```
 
 <b>默认配置：</b>
@@ -187,9 +191,9 @@ String result = Util.httpPost("https://api.example.com/data", "json={}", "UTF-8"
 | `charsetConvert(str, from, to)` | 编码转换 | str: 字符串, from: 源编码, to: 目标编码 | 转换后字符串 |
 
 ```java
-String utf8 = Util.gbkToUtf8("测试");
-String gbk = Util.utf8ToGbk("测试");
-String result = Util.charsetConvert("测试", Charset.forName("GBK"), Charset.forName("UTF-8"));
+String utf8 = JavaTools.gbkToUtf8("测试");
+String gbk = JavaTools.utf8ToGbk("测试");
+String result = JavaTools.charsetConvert("测试", Charset.forName("GBK"), Charset.forName("UTF-8"));
 ```
 
 ---
@@ -202,8 +206,8 @@ String result = Util.charsetConvert("测试", Charset.forName("GBK"), Charset.fo
 | `hexToBytes(hex)` | 十六进制转字节 | hex: 十六进制字符串 | 字节数组 |
 
 ```java
-String hex = Util.bytesToHex(new byte[]{0x48, 0x65});  // "4865"
-byte[] bytes = Util.hexToBytes("4865");                  // [72, 101]
+String hex = JavaTools.bytesToHex(new byte[]{0x48, 0x65});  // "4865"
+byte[] bytes = JavaTools.hexToBytes("4865");                  // [72, 101]
 ```
 
 ---
@@ -216,7 +220,7 @@ byte[] bytes = Util.hexToBytes("4865");                  // [72, 101]
 | **MD5** | `md5(data)` |
 | **UUID** | `uuid()`<br>`uuidWithDash()`<br>`uuidOf(name)` |
 | **文件** | `copyFile(source, target)`<br>`copyDir(source, target)`<br>`moveFile(source, target)`<br>`delete(path)`<br>`readFile(path)`<br>`writeFile(path, content)` |
-| **ZIP** | `zip(source, target)`<br>`zipFlat(sourceDir, targetFile)` |
+| **ZIP** | `zip(source, target)`<br>`zipFlat(sourceDir, targetFile)`<br>`unzip(zipPath, targetDir)` |
 | **HTTP** | `httpGet(url)`<br>`httpGet(url, charset)`<br>`httpPost(url, params)`<br>`httpPost(url, params, charset)` |
 | **编码** | `gbkToUtf8(str)`<br>`utf8ToGbk(str)`<br>`charsetConvert(str, from, to)` |
 | **字节** | `bytesToHex(bytes)`<br>`hexToBytes(hex)` |
@@ -226,8 +230,8 @@ byte[] bytes = Util.hexToBytes("4865");                  // [72, 101]
 ## 版本信息
 
 - 作者：Xianfei Zhu
-- 版本：2.0
-- 更新日期：2024
+- 版本：3.0
+- 更新日期：2026
 
 ## 许可证
 
