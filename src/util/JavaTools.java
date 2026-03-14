@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -116,7 +117,7 @@ public final class JavaTools {
     }
 
     /**
-     * AES加解密核心处理方法（CBC模式）
+     * AES加解密核心处理方法（CBC模式 + HMAC-SHA256完整性校验）
      *
      * @param data 待处理数据
      * @param key  密钥
@@ -131,25 +132,33 @@ public final class JavaTools {
 
             byte[] content;
             byte[] ivBytes;
-            javax.crypto.spec.IvParameterSpec iv;
+            byte[] hmacKey = key.getBytes(StandardCharsets.UTF_8);
 
             if (mode == javax.crypto.Cipher.ENCRYPT_MODE) {
                 content = data.getBytes(StandardCharsets.UTF_8);
                 ivBytes = new byte[16];
                 new SecureRandom().nextBytes(ivBytes);
-                iv = new javax.crypto.spec.IvParameterSpec(ivBytes);
             } else {
                 byte[] all = hexToBytes(data);
-                if (all == null || all.length <= 16) {
+                if (all == null || all.length <= 48) {
                     return null;
                 }
                 ivBytes = new byte[16];
                 System.arraycopy(all, 0, ivBytes, 0, 16);
-                iv = new javax.crypto.spec.IvParameterSpec(ivBytes);
-                content = new byte[all.length - 16];
-                System.arraycopy(all, 16, content, 0, content.length);
+                
+                byte[] storedHmac = new byte[32];
+                byte[] encrypted = new byte[all.length - 48];
+                System.arraycopy(all, 16, storedHmac, 0, 32);
+                System.arraycopy(all, 48, encrypted, 0, encrypted.length);
+                
+                byte[] computedHmac = hmacSha256(encrypted, ivBytes, hmacKey);
+                if (!Arrays.equals(storedHmac, computedHmac)) {
+                    return null;
+                }
+                content = encrypted;
             }
 
+            javax.crypto.spec.IvParameterSpec iv = new javax.crypto.spec.IvParameterSpec(ivBytes);
             javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(
                     key.getBytes(StandardCharsets.UTF_8), "AES");
 
@@ -159,9 +168,11 @@ public final class JavaTools {
             byte[] result = cipher.doFinal(content);
 
             if (mode == javax.crypto.Cipher.ENCRYPT_MODE) {
-                byte[] all = new byte[ivBytes.length + result.length];
+                byte[] hmac = hmacSha256(result, ivBytes, hmacKey);
+                byte[] all = new byte[ivBytes.length + hmac.length + result.length];
                 System.arraycopy(ivBytes, 0, all, 0, ivBytes.length);
-                System.arraycopy(result, 0, all, ivBytes.length, result.length);
+                System.arraycopy(hmac, 0, all, ivBytes.length, hmac.length);
+                System.arraycopy(result, 0, all, ivBytes.length + hmac.length, result.length);
                 return bytesToHex(all);
             } else {
                 return new String(result, StandardCharsets.UTF_8);
@@ -169,6 +180,14 @@ public final class JavaTools {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static byte[] hmacSha256(byte[] data, byte[] iv, byte[] key) throws Exception {
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(key, "HmacSHA256");
+        mac.init(keySpec);
+        mac.update(iv);
+        return mac.doFinal(data);
     }
 
     // ==================== MD5加密 ====================
@@ -287,9 +306,15 @@ public final class JavaTools {
      * </pre>
      */
     public static void copyFile(String source, String target) {
+        if (source == null || target == null) {
+            throw new RuntimeException("路径不能为null");
+        }
         Path srcPath = Paths.get(source);
         if (!Files.exists(srcPath)) {
             throw new RuntimeException("源文件不存在: " + source);
+        }
+        if (Files.isSymbolicLink(srcPath)) {
+            throw new RuntimeException("不支持操作符号链接: " + source);
         }
         try {
             Path destPath = Paths.get(target);
@@ -317,15 +342,24 @@ public final class JavaTools {
      * </pre>
      */
     public static void copyDir(String source, String target) {
+        if (source == null || target == null) {
+            throw new RuntimeException("路径不能为null");
+        }
         Path srcPath = Paths.get(source);
         if (!Files.exists(srcPath) || !Files.isDirectory(srcPath)) {
             throw new RuntimeException("源目录不存在: " + source);
+        }
+        if (Files.isSymbolicLink(srcPath)) {
+            throw new RuntimeException("不支持操作符号链接: " + source);
         }
 
         try {
             Files.walkFileTree(srcPath, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    if (Files.isSymbolicLink(dir)) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
                     Path targetDir = Paths.get(target, srcPath.relativize(dir).toString());
                     Files.createDirectories(targetDir);
                     return FileVisitResult.CONTINUE;
@@ -333,6 +367,9 @@ public final class JavaTools {
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    if (Files.isSymbolicLink(file)) {
+                        return FileVisitResult.CONTINUE;
+                    }
                     Path targetFile = Paths.get(target, srcPath.relativize(file).toString());
                     Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING);
                     return FileVisitResult.CONTINUE;
@@ -361,11 +398,17 @@ public final class JavaTools {
      * </pre>
      */
     public static void moveFile(String source, String target) {
+        if (source == null || target == null) {
+            throw new RuntimeException("路径不能为null");
+        }
         Path srcPath = Paths.get(source);
         Path destPath = Paths.get(target);
 
         if (!Files.exists(srcPath)) {
             throw new RuntimeException("源文件不存在: " + source);
+        }
+        if (Files.isSymbolicLink(srcPath)) {
+            throw new RuntimeException("不支持操作符号链接: " + source);
         }
 
         try {
@@ -402,10 +445,16 @@ public final class JavaTools {
      * </pre>
      */
     public static void delete(String path) {
+        if (path == null) {
+            throw new RuntimeException("路径不能为null");
+        }
         try {
             Path p = Paths.get(path);
             if (!Files.exists(p)) {
                 return;
+            }
+            if (Files.isSymbolicLink(p)) {
+                throw new RuntimeException("不支持删除符号链接: " + path);
             }
             if (Files.isDirectory(p)) {
                 Files.walkFileTree(p, new SimpleFileVisitor<Path>() {
@@ -463,6 +512,9 @@ public final class JavaTools {
      * @see #writeFile(String, String)
      */
     public static String readFile(String path, String charset) {
+        if (path == null || path.isEmpty()) {
+            throw new RuntimeException("文件路径不能为空");
+        }
         if (!Charset.isSupported(charset)) {
             throw new RuntimeException("不支持的字符编码: " + charset);
         }
@@ -515,6 +567,12 @@ public final class JavaTools {
      * @see #readFile(String)
      */
     public static void writeFile(String path, String content, String charset, boolean append) {
+        if (path == null || path.isEmpty()) {
+            throw new RuntimeException("文件路径不能为空");
+        }
+        if (content == null) {
+            content = "";
+        }
         try {
             Path p = Paths.get(path);
             Files.createDirectories(p.getParent());
@@ -627,14 +685,23 @@ public final class JavaTools {
 
         try (ZipFile zf = new ZipFile(zipFile)) {
             String destDirPath = target.getCanonicalPath();
+            int destDirPathLen = destDirPath.length();
             java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                File outFile = new File(target, entry.getName()).getAbsoluteFile();
+                String entryName = entry.getName();
+                if (entryName.contains("..")) {
+                    throw new RuntimeException("非法压缩文件条目，存在路径遍历风险: " + entryName);
+                }
+                File outFile = new File(target, entryName).getAbsoluteFile();
 
                 String destFilePath = outFile.getCanonicalPath();
-                if (!destFilePath.startsWith(destDirPath + File.separator)) {
-                    throw new RuntimeException("非法压缩文件条目，存在路径遍历风险: " + entry.getName());
+                boolean valid = destFilePath.startsWith(destDirPath);
+                if (valid && destDirPathLen < destFilePath.length()) {
+                    valid = destFilePath.charAt(destDirPathLen) == File.separatorChar;
+                }
+                if (!valid) {
+                    throw new RuntimeException("非法压缩文件条目，存在路径遍历风险: " + entryName);
                 }
 
                 if (entry.isDirectory()) {
@@ -836,7 +903,24 @@ public final class JavaTools {
      */
     private static String httpRead(java.net.HttpURLConnection conn, String charset) throws Exception {
         int code = conn.getResponseCode();
-        try (InputStream is = code == 200 ? conn.getInputStream() : conn.getErrorStream();
+        if (code < 200 || code >= 300) {
+            String errorMsg = "HTTP请求失败: " + code;
+            try (InputStream is = conn.getErrorStream();
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                if (is != null) {
+                    byte[] buffer = new byte[BUFFER];
+                    int len;
+                    while ((len = is.read(buffer)) != -1) {
+                        bos.write(buffer, 0, len);
+                    }
+                    if (bos.size() > 0) {
+                        errorMsg += " - " + new String(bos.toByteArray(), charset);
+                    }
+                }
+            }
+            throw new RuntimeException(errorMsg);
+        }
+        try (InputStream is = conn.getInputStream();
              ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[BUFFER];
             int len;
